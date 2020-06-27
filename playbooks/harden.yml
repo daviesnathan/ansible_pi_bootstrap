@@ -1,0 +1,75 @@
+#
+# Baseline hardening playbook for raspberry pi.
+#
+# A new user will need be defined in vars as per the README for singleplatform-eng.users role
+# for future connections and deletion of the default 'pi' user.
+# 
+---
+  - hosts: all
+    become: true
+    roles:
+      - singleplatform-eng.users
+
+  - hosts: all
+    become: true
+    tasks:
+      - name: Disable PasswordAuthentication for SSH
+        lineinfile:
+          path: "{{ item }}"
+          regex: ^(# *)?PasswordAuthentication
+          line: PasswordAuthentication no
+        loop:
+          - /etc/ssh/sshd_config
+
+      - name: Install UFW
+        package:
+          name: ufw
+          state: present
+
+      - name: Enable UFW and deny inbound traffic by default
+        ufw:
+          state: enabled
+          direction: incoming
+          policy: deny
+
+      - name: Allow inbound traffic from RFC1918 networks
+        ufw:
+          rule: allow
+          direction: in
+          src: '{{ item }}'
+        loop:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+      
+      - name: Restart SSH service
+        service:
+          name: ssh
+          state: restarted
+
+      - name: Reload UFW service
+        ufw:
+          state: reloaded
+
+  - hosts: all
+    vars_prompt:
+      - name: new_user
+        prompt: "To delete the pi user, what username would you like to connect as?"
+        private: no
+
+      - name: new_sudo_pass
+        prompt: "What is the sudo password for this user?"
+    tasks:
+      - set_fact:
+          remote_user: "{{ new_user }}"
+          ansible_become_password: "{{ new_sudo_pass }}"
+
+  - hosts: all
+    become: true
+    vars:
+      users_deleted:
+        - username: pi
+          remove: yes
+          force: yes
+    roles:
+      - singleplatform-eng.users
