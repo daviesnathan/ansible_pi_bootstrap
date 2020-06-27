@@ -1,8 +1,6 @@
 
-[raspberries:vars]
-ansible_user=pi
-ansible_password=raspberry
+[all:vars]
 ansible_ssh_extra_args='-o StrictHostKeyChecking=no'
 
-[first_time_setup]
-[already_configured]
+[cluster_configured]
+[cluster_new]
