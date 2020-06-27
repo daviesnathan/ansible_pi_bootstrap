@@ -1,0 +1,68 @@
+#
+# K3s Cluster Prep Playbook
+#
+---
+- hosts: localhost
+  connection: local
+  tasks:
+    - name: Add pis into configured group
+      add_host:
+        groups: cluster_configured
+        name: "{{ item }}"
+      with_items: "{{ groups['all'] }}"
+      when: hostvars[item]['hostname'] | regex_search('^(.*)-(\d)')
+
+    - set_fact:
+        host_numbers: []
+        host_numbers_target_sequence: []
+        new_hosts: []
+
+    - set_fact:
+        new_hosts: "{{ new_hosts + [item] }}"
+      with_items: "{{ groups['all'] }}"
+      when: hostvars[item]['hostname'] == 'raspberrypi'
+
+    - set_fact:
+        host_numbers_target_sequence: "{{ host_numbers_target_sequence + [item] }}"
+      loop: "{{ range(0, groups['all'] | length )| list }}"
+    
+    - set_fact:
+        host_numbers: "{{ host_numbers + [hostvars[item]['hostname'] | regex_replace('^(.*)-(\\d)(.*)', '\\2') | int] }}"
+      with_items: "{{ groups['cluster_configured'] }}"
+
+    - set_fact:
+        new_host_numbers: "{{ host_numbers_target_sequence | difference(host_numbers) }}"
+
+    - name: Add new pis into new cluster group
+      add_host:
+        groups: cluster_new
+        name: "{{ item }}"
+        target_hostname: "{{ cluster_hostname_prefix }}-{{ new_host_numbers[loop_index] }}.{{ cluster_hostname_domain }}"
+      loop: "{{ new_hosts }}"
+      loop_control:
+        index_var: loop_index
+
+    - debug:
+        msg: "{{ hostvars[item]['target_hostname'] }}"
+      with_items: "{{ groups['cluster_new'] }}"
+
+- hosts: cluster_new
+  become: true
+  tasks:    
+    - name: Set Hostname
+      hostname:
+        name: "{{ target_hostname }}"
+    
+    - name: Reboot
+      reboot:
+
+- hosts: cluster_configured, cluster_new
+  become: true
+  tasks:
+  - name: Ensure cluster-wide name resolution is configured.
+    lineinfile:
+      path: /etc/hosts
+      regexp: "'^{{hostvars[item]['ansible_default_ipv4']['address']}}'"
+      line: "{{hostvars[item]['ansible_default_ipv4']['address']}}    {{hostvars[item]['hostname']}}"
+    with_items: "{{ groups['cluster_configured'] + groups['cluster_new'] }}"
+    
